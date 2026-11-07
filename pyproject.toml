@@ -1,0 +1,18 @@
+[project]
+name = "plamo3-translate-for-mac"
+version = "0.1.0"
+description = "Local translation UI for PLaMo 3 Translate on Apple silicon"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "mlx",
+    "mlx-lm",
+    "transformers",
+    "numba",
+    "huggingface_hub",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false

@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLaMo Translate</title>
+<link rel="icon" href="data:,">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f5f5f3;
+  --panel: #ffffff;
+  --text: #1c1c1e;
+  --muted: #6e6e73;
+  --line: #deded9;
+  --accent: #0a6c74;
+  --accent-text: #ffffff;
+  --output: #fafaf8;
+  --warn-bg: #fff4d6;
+  --warn-text: #6b4e00;
+  --err-bg: #fde7e7;
+  --err-text: #9b1c1c;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161617;
+    --panel: #212123;
+    --text: #f2f2f4;
+    --muted: #a0a0a6;
+    --line: #38383c;
+    --accent: #3fb5bf;
+    --accent-text: #08282b;
+    --output: #1b1b1d;
+    --warn-bg: #3a2f10;
+    --warn-text: #f3d57e;
+    --err-bg: #3c1a1a;
+    --err-text: #f7b0b0;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+}
+h1 { font-size: 16px; font-weight: 600; margin: 0; }
+#status { margin-left: auto; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; text-align: right; }
+#dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+#dot.ready { background: #2f9e62; }
+#dot.busy { background: #d9a400; }
+#dot.error { background: #d64545; }
+main { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 20px 16px; gap: 10px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
+select, button, input[type=text], textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+select { padding: 6px 8px; max-width: 200px; }
+button { padding: 6px 12px; cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: .5; cursor: default; }
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+  padding: 6px 18px;
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+kbd { font: inherit; font-size: 12px; opacity: .8; margin-left: 4px; }
+.panes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; min-height: 280px; }
+.pane { position: relative; display: flex; flex-direction: column; min-height: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.pane.out { background: var(--output); }
+#source, #output {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  padding: 14px 16px;
+  background: transparent;
+  font-size: 17px;
+  line-height: 1.7;
+  resize: none;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+#output:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.pane-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 13px; color: var(--muted); min-height: 40px; }
+.pane-foot button { padding: 3px 10px; font-size: 13px; }
+#banner { padding: 8px 12px; border-radius: 8px; font-size: 14px; }
+#banner.warn { background: var(--warn-bg); color: var(--warn-text); }
+#banner.err { background: var(--err-bg); color: var(--err-text); }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; }
+summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.options label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.options textarea { width: 100%; height: 84px; padding: 8px 10px; resize: vertical; }
+@media (max-width: 720px) {
+  .panes, .options { grid-template-columns: 1fr; }
+  .pane { min-height: 240px; }
+  header, main { padding-left: 16px; padding-right: 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>PLaMo Translate</h1>
+  <div id="status" role="status"><span id="dot"></span><span id="status-text">接続しています…</span></div>
+</header>
+<main>
+  <div class="toolbar">
+    <select id="source-lang" aria-label="翻訳元の言語"></select>
+    <button id="swap" title="翻訳元と翻訳先を入れ替え" aria-label="翻訳元と翻訳先を入れ替え">⇄</button>
+    <select id="target-lang" aria-label="翻訳先の言語"></select>
+    <select id="form" aria-label="日本語の文体">
+      <option value="">文体: 自動</option>
+      <option value="polite">です・ます調</option>
+      <option value="plain">だ・である調</option>
+    </select>
+    <span class="spacer"></span>
+    <button id="stop" hidden>停止</button>
+    <button id="translate" class="primary" disabled>翻訳<kbd>⌘↵</kbd></button>
+  </div>
+  <div id="banner" hidden role="alert"></div>
+  <div class="panes">
+    <div class="pane">
+      <textarea id="source" placeholder="翻訳するテキストを入力" aria-label="翻訳するテキスト" autofocus></textarea>
+      <div class="pane-foot">
+        <span id="count">0 文字</span>
+        <span class="spacer"></span>
+        <button id="clear">クリア</button>
+      </div>
+    </div>
+    <div class="pane out">
+      <div id="output" data-placeholder="訳文がここに表示されます" aria-label="訳文" aria-live="polite" tabindex="0"></div>
+      <div class="pane-foot">
+        <span id="stats"></span>
+        <span class="spacer"></span>
+        <button id="copy" disabled>コピー</button>
+      </div>
+    </div>
+  </div>
+  <details id="advanced">
+    <summary>コンテキスト・用語集</summary>
+    <div class="options">
+      <div>
+        <label for="context">コンテキスト（文脈や状況の説明）</label>
+        <textarea id="context" placeholder="例: 工作で折り紙を作っています。"></textarea>
+      </div>
+      <div>
+        <label for="glossary">用語集（1 行に「原語=訳語」）</label>
+        <textarea id="glossary" placeholder="管理画面=dashboard"></textarea>
+      </div>
+    </div>
+  </details>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const SETTINGS_KEY = "plamo-translate-settings";
+const SAVED_FIELDS = ["source-lang", "target-lang", "form", "context", "glossary"];
+let ready = false;
+let controller = null;
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; }
+}
+function saveSettings() {
+  try {
+    const values = Object.fromEntries(SAVED_FIELDS.map((id) => [id, $(id).value]));
+    values.advancedOpen = $("advanced").open;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(values));
+  } catch { /* settings are a convenience */ }
+}
+function option(value, label) {
+  const el = document.createElement("option");
+  el.value = value;
+  el.textContent = label;
+  return el;
+}
+function fillLanguages(languages) {
+  const entries = Object.entries(languages);
+  $("source-lang").append(option("auto", "言語を自動検出"), ...entries.map(([c, n]) => option(c, n)));
+  $("target-lang").append(option("auto", "自動（日本語⇔英語）"), ...entries.map(([c, n]) => option(c, n)));
+  const saved = loadSettings();
+  for (const id of SAVED_FIELDS) {
+    if (saved[id] !== undefined) $(id).value = saved[id];
+    if ($(id).selectedIndex === -1) $(id).selectedIndex = 0;
+  }
+  $("advanced").open = !!saved.advancedOpen;
+  updateFormVisibility();
+}
+function updateFormVisibility() {
+  const target = $("target-lang").value;
+  $("form").hidden = !(target === "ja" || target === "auto");
+}
+function showBanner(kind, message) {
+  $("banner").className = kind;
+  $("banner").textContent = message;
+  $("banner").hidden = false;
+}
+function hideBanner() { $("banner").hidden = true; }
+
+function setStatus(state, text) {
+  $("dot").className = state === "ready" ? "ready" : state === "error" ? "error" : "busy";
+  $("status-text").textContent = text;
+}
+function updateButtons() {
+  const running = controller !== null;
+  $("translate").disabled = !ready || running || !$("source").value.trim();
+  $("translate").hidden = running;
+  $("stop").hidden = !running;
+  $("copy").disabled = !$("output").textContent;
+}
+function updateCount() {
+  $("count").textContent = `${$("source").value.length.toLocaleString()} 文字`;
+  updateButtons();
+}
+
+let languagesLoaded = false;
+async function pollStatus() {
+  let delay = 1000;
+  try {
+    const status = await (await fetch("/api/status")).json();
+    if (!languagesLoaded) {
+      fillLanguages(status.languages);
+      languagesLoaded = true;
+    }
+    ready = status.state === "ready";
+    if (ready) delay = 10000;
+    if (controller === null) {
+      setStatus(status.state, ready ? `準備完了 · ${status.model}` : status.message);
+    }
+  } catch {
+    ready = false;
+    setStatus("error", "アプリに接続できません。起動しているか確認してください。");
+    delay = 3000;
+  }
+  updateButtons();
+  setTimeout(pollStatus, delay);
+}
+
+function parseGlossary(text) {
+  const terms = [];
+  for (const line of text.split("\n")) {
+    const at = line.indexOf("=");
+    if (at <= 0) continue;
+    const source = line.slice(0, at).trim();
+    const target = line.slice(at + 1).trim();
+    if (source && target) terms.push({ source, target });
+  }
+  return terms;
+}
+
+async function translate() {
+  const text = $("source").value;
+  if (!ready || controller || !text.trim()) return;
+  saveSettings();
+  hideBanner();
+  $("output").textContent = "";
+  $("stats").textContent = "";
+  controller = new AbortController();
+  updateButtons();
+  setStatus("busy", "翻訳しています…");
+  const started = performance.now();
+  let chars = 0;
+  let firstToken = null;
+  let chunks = 1;
+  let finished = false;
+  try {
+    const response = await fetch("/api/translate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        source_lang: $("source-lang").value,
+        target_lang: $("target-lang").value,
+        form: $("form").hidden ? null : $("form").value,
+        context: $("context").value,
+        glossary: parseGlossary($("glossary").value),
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${response.status}`);
+    }
+    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let end;
+      while ((end = buffer.indexOf("\n\n")) >= 0) {
+        const event = JSON.parse(buffer.slice(0, end).replace(/^data: /, ""));
+        buffer = buffer.slice(end + 2);
+        if (event.type === "delta") {
+          if (firstToken === null) firstToken = performance.now();
+          chars += event.text.length;
+          $("output").append(event.text);
+          updateButtons();
+        } else if (event.type === "meta") {
+          chunks = event.chunks;
+        } else if (event.type === "progress" && chunks > 1) {
+          setStatus("busy", `翻訳しています… ${event.chunk} / ${chunks} ブロック`);
+        } else if (event.type === "warning") {
+          showBanner("warn", event.message);
+        } else if (event.type === "error") {
+          throw new Error(event.message);
+        } else if (event.type === "done") {
+          finished = true;
+        }
+      }
+    }
+    if (!finished) throw new Error("翻訳が途中で中断されました。");
+    const seconds = (performance.now() - started) / 1000;
+    $("stats").textContent = `${seconds.toFixed(1)} 秒 · ${chars.toLocaleString()} 文字`;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      $("stats").textContent = "停止しました";
+    } else {
+      showBanner("err", error.message);
+    }
+  } finally {
+    controller = null;
+    setStatus(ready ? "ready" : "busy", ready ? "準備完了" : "再接続しています…");
+    updateButtons();
+  }
+}
+
+$("translate").addEventListener("click", translate);
+$("stop").addEventListener("click", () => controller?.abort());
+$("source").addEventListener("input", updateCount);
+$("clear").addEventListener("click", () => {
+  $("source").value = "";
+  $("output").textContent = "";
+  $("stats").textContent = "";
+  hideBanner();
+  updateCount();
+  $("source").focus();
+});
+$("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("output").textContent);
+    $("copy").textContent = "コピーしました";
+    setTimeout(() => { $("copy").textContent = "コピー"; }, 1500);
+  } catch {
+    showBanner("err", "クリップボードにコピーできませんでした。");
+  }
+});
+$("swap").addEventListener("click", () => {
+  const source = $("source-lang").value;
+  const target = $("target-lang").value;
+  if (source !== "auto" && target !== "auto") {
+    $("source-lang").value = target;
+    $("target-lang").value = source;
+  }
+  const output = $("output").textContent;
+  if (output && !controller) {
+    $("source").value = output;
+    $("output").textContent = "";
+    $("stats").textContent = "";
+    updateCount();
+  }
+  updateFormVisibility();
+  saveSettings();
+});
+$("target-lang").addEventListener("change", () => { updateFormVisibility(); saveSettings(); });
+for (const id of ["source-lang", "form", "context", "glossary"]) {
+  $(id).addEventListener("change", saveSettings);
+}
+$("advanced").addEventListener("toggle", saveSettings);
+document.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    translate();
+  }
+});
+
+pollStatus();
+</script>
+</body>
+</html>
